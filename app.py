@@ -21,14 +21,23 @@ def download_model():
         if MODEL_URL:
             print(f"Downloading model from {MODEL_URL}...")
             try:
-                urllib.request.urlretrieve(MODEL_URL, MODEL_PATH)
-                print("✅ Model downloaded successfully.")
+                    model = tf.keras.models.load_model(MODEL_PATH)
+                    print("✅ Model loaded successfully")
             except Exception as e:
-                print(f"❌ Failed to download model: {e}")
+                    print(f"❌ Failed to load model: {e}")
         else:
             print("❌ MODEL_URL not set!")
 
 download_model()
+
+# Load the model
+model = None
+if os.path.exists(MODEL_PATH):
+    try:
+        model = tf.keras.models.load_model(MODEL_PATH)
+        print("✅ Model loaded successfully")
+    except Exception as e:
+        print(f"❌ Failed to load model: {e}")
 
 app = Flask(__name__)
 
