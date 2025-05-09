@@ -8,6 +8,7 @@ import os
 import json
 from dotenv import load_dotenv
 import urllib.request
+import traceback  # Add for better error logging
 
 # Load environment variables
 load_dotenv()
@@ -41,6 +42,8 @@ if os.path.exists(MODEL_PATH):
         print("✅ TFLite model loaded successfully.")
     except Exception as e:
         print(f"❌ Failed to load TFLite model: {e}")
+else:
+    print(f"❌ Model file not found at {MODEL_PATH}")
 
 # Constants
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg'}
@@ -59,95 +62,126 @@ def allowed_file(filename):
 # Main endpoint
 @app.route('/predict', methods=['POST'])
 def predict():
-    if not interpreter:
-        return jsonify({"status": "error", "message": "Model not loaded"}), 500
-
-    # Log the incoming request
-    print("📥 Received prediction request")
-
-    sensor_data = {}
-    if 'sensor_data' in request.form:
-        try:
-            sensor_data = json.loads(request.form['sensor_data'])
-            print(f"📊 Sensor data received: {sensor_data}")
-        except json.JSONDecodeError:
-            print("❌ Invalid sensor data format")
-            return jsonify({"status": "error", "message": "Invalid sensor data format"}), 400
-
-    # Process request with or without image
-    has_image = 'image' in request.files and request.files['image'].filename != ''
-    
-    if has_image:
-        file = request.files['image']
+    try:
+        # Log all request information for debugging
+        print("📥 Received prediction request")
+        print(f"Content-Type: {request.content_type}")
+        print(f"Form data keys: {list(request.form.keys())}")
+        print(f"Files keys: {list(request.files.keys())}")
         
-        if not allowed_file(file.filename):
-            print(f"❌ Invalid file type: {file.filename}")
-            return jsonify({"status": "error", "message": "Invalid file type"}), 400
+        # Handle missing model gracefully
+        if not interpreter:
+            print("❌ Model not loaded")
+            if not os.path.exists(MODEL_PATH):
+                return jsonify({"status": "error", "message": f"Model file not found at {MODEL_PATH}"}), 500
+            return jsonify({"status": "error", "message": "Model not loaded"}), 500
 
-        temp_path = None
+        sensor_data = {}
+        if 'sensor_data' in request.form:
+            try:
+                sensor_data = json.loads(request.form['sensor_data'])
+                print(f"📊 Sensor data received: {sensor_data}")
+            except json.JSONDecodeError as e:
+                print(f"❌ Invalid sensor data format: {e}")
+                return jsonify({"status": "error", "message": f"Invalid sensor data format: {str(e)}"}), 400
+        elif request.is_json:
+            # Try to get sensor data from JSON body if Content-Type is application/json
+            try:
+                sensor_data = request.get_json() or {}
+                print(f"🔄 Using JSON body for sensor data: {sensor_data}")
+            except Exception as e:
+                print(f"❌ Error parsing JSON body: {e}")
+
+        # Process request with or without image
+        has_image = 'image' in request.files and request.files['image'].filename != ''
+        
+        if has_image:
+            file = request.files['image']
+            
+            if not allowed_file(file.filename):
+                print(f"❌ Invalid file type: {file.filename}")
+                return jsonify({"status": "error", "message": "Invalid file type"}), 400
+
+            temp_path = None
+            try:
+                filename = secure_filename(file.filename)
+                os.makedirs('uploads', exist_ok=True)
+                temp_path = os.path.join('uploads', filename)
+                file.save(temp_path)
+                print(f"✅ Image saved temporarily: {temp_path}")
+
+                img = Image.open(temp_path).convert('RGB').resize((256, 256))
+                img_array = tf.keras.preprocessing.image.img_to_array(img)
+                img_array = np.expand_dims(img_array, axis=0) / 255.0
+
+                # Prepare tensors for TFLite prediction
+                input_details = interpreter.get_input_details()
+                output_details = interpreter.get_output_details()
+                interpreter.set_tensor(input_details[0]['index'], img_array.astype(np.float32))
+                interpreter.invoke()
+                output_data = interpreter.get_tensor(output_details[0]['index'])[0]
+
+                predicted_class = CLASS_NAMES[np.argmax(output_data)]
+                confidence = float(np.max(output_data))
+                print(f"🔍 Image analysis result: {predicted_class} with {confidence:.2f} confidence")
+
+            except Exception as e:
+                print(f"❌ Error processing image: {str(e)}")
+                print(traceback.format_exc())  # More detailed error info
+                return jsonify({"status": "error", "message": str(e)}), 500
+            finally:
+                if temp_path and os.path.exists(temp_path):
+                    os.remove(temp_path)
+                    print("🗑️ Temporary image file removed")
+        else:
+            print("ℹ️ No image provided, skipping disease detection")
+            predicted_class = "No_image_provided"
+            confidence = 0.0
+
+        # Process sensor data - handle missing keys safely
+        sensor_insights = analyze_sensor_data(sensor_data)
+        
+        # Get weather data with error handling
         try:
-            filename = secure_filename(file.filename)
-            os.makedirs('uploads', exist_ok=True)
-            temp_path = os.path.join('uploads', filename)
-            file.save(temp_path)
-            print(f"✅ Image saved temporarily: {temp_path}")
-
-            img = Image.open(temp_path).convert('RGB').resize((256, 256))
-            img_array = tf.keras.preprocessing.image.img_to_array(img)
-            img_array = np.expand_dims(img_array, axis=0) / 255.0
-
-            # Prepare tensors for TFLite prediction
-            input_details = interpreter.get_input_details()
-            output_details = interpreter.get_output_details()
-            interpreter.set_tensor(input_details[0]['index'], img_array.astype(np.float32))
-            interpreter.invoke()
-            output_data = interpreter.get_tensor(output_details[0]['index'])[0]
-
-            predicted_class = CLASS_NAMES[np.argmax(output_data)]
-            confidence = float(np.max(output_data))
-            print(f"🔍 Image analysis result: {predicted_class} with {confidence:.2f} confidence")
-
+            weather_data = get_weather_data()
         except Exception as e:
-            print(f"❌ Error processing image: {str(e)}")
-            return jsonify({"status": "error", "message": str(e)}), 500
-        finally:
-            if temp_path and os.path.exists(temp_path):
-                os.remove(temp_path)
-                print("🗑️ Temporary image file removed")
-    else:
-        print("ℹ️ No image provided, skipping disease detection")
-        predicted_class = "No_image_provided"
-        confidence = 0.0
+            print(f"⚠️ Error getting weather data: {str(e)}")
+            weather_data = None
 
-    # Always process sensor data
-    weather_data = get_weather_data()
-    sensor_insights = analyze_sensor_data(sensor_data)
-
-    response = {
-        "status": "success",
-        "sensor_data": sensor_data,
-        "sensor_analysis": sensor_insights,
-        "weather_data": weather_data,
-    }
-    
-    # Add disease prediction if image was provided
-    if has_image:
-        response.update({
-            "disease": predicted_class,
-            "confidence": confidence,
-            "recommendation": get_remedy(predicted_class)
-        })
+        response = {
+            "status": "success",
+            "sensor_data": sensor_data,
+            "sensor_analysis": sensor_insights,
+            "weather_data": weather_data,
+        }
         
-    print(f"✅ Processed request successfully")
-    return jsonify(response)
+        # Add disease prediction if image was provided
+        if has_image:
+            response.update({
+                "disease": predicted_class,
+                "confidence": confidence,
+                "recommendation": get_remedy(predicted_class)
+            })
+            
+        print(f"✅ Processed request successfully")
+        return jsonify(response)
+    
+    except Exception as e:
+        print(f"❌ Unhandled exception in predict endpoint: {str(e)}")
+        print(traceback.format_exc())  # Print traceback for debugging
+        return jsonify({"status": "error", "message": f"Server error: {str(e)}"}), 500
 
 # Helper: sensor analysis with light sensor support
 def analyze_sensor_data(data):
     advice = []
+    
+    # Extract fields with safety checks
     temp = data.get("temperature")
     humidity = data.get("humidity")
-    soil_moisture = data.get("soil_moisture")
-    light = data.get("light")
+    # Check both keys since the ESP32 uses soil_moisture but our function expects soil_moisture
+    soil_moisture = data.get("soil_moisture", data.get("soilMoisture"))
+    # Check both keys for light
+    light = data.get("light", data.get("lightLevel"))
     
     # Log received sensor values
     print(f"🌡️ Temperature: {temp}°C") if temp is not None else print("❌ No temperature data")
@@ -250,14 +284,26 @@ def get_remedy(disease):
 def home():
     return "✅ AgriTech Flask Backend is running! Use /predict endpoint to analyze plant health."
 
-# Logging routes
-@app.route("/logs")
-def check_logs():
-    return "Check the application logs on your hosting platform for detailed information."
+# Diagnostic route - shows status of model loading
+@app.route("/status")
+def check_status():
+    model_status = "Model loaded successfully" if interpreter else "Model not loaded"
+    model_file_exists = os.path.exists(MODEL_PATH)
+    
+    status = {
+        "status": "running",
+        "model_loaded": interpreter is not None,
+        "model_file_exists": model_file_exists,
+        "model_path": MODEL_PATH,
+        "weather_api": WEATHER_API_KEY is not None
+    }
+    
+    return jsonify(status)
 
 # Start app
 if __name__ == '__main__':
     os.makedirs('uploads', exist_ok=True)
     print("✅ AgriTech Backend Starting...")
     print("✅ Weather API Key Loaded:", WEATHER_API_KEY is not None)
+    print(f"✅ Model file exists: {os.path.exists(MODEL_PATH)}")
     app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)), debug=True)
