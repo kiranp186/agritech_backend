@@ -7,22 +7,34 @@ import requests
 import os
 import json
 from dotenv import load_dotenv
+import os
+import urllib.request
 
 # Load environment variables from .env file
 load_dotenv()
+
+MODEL_PATH = "model.h5"
+MODEL_URL = os.getenv("MODEL_URL")  # Get from environment variable
+
+def download_model():
+    if not os.path.exists(MODEL_PATH):
+        if MODEL_URL:
+            print(f"Downloading model from {MODEL_URL}...")
+            try:
+                urllib.request.urlretrieve(MODEL_URL, MODEL_PATH)
+                print("✅ Model downloaded successfully.")
+            except Exception as e:
+                print(f"❌ Failed to download model: {e}")
+        else:
+            print("❌ MODEL_URL not set!")
+
+download_model()
 
 app = Flask(__name__)
 
 # Allowed image extensions
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg'}
 
-# Load model
-try:
-    model = tf.keras.models.load_model('model.h5')
-    print("✅ Model loaded successfully.")
-except Exception as e:
-    print(f"❌ Error loading model: {e}")
-    model = None
 
 # Define class names for prediction
 CLASS_NAMES = [
