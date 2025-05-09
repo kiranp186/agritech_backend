@@ -190,3 +190,7 @@ if __name__ == '__main__':
     os.makedirs('uploads', exist_ok=True)
     print("✅ Weather API Key Loaded:", WEATHER_API_KEY is not None)
     app.run(host='0.0.0.0', port=5000, debug=True)
+
+@app.route("/")
+def home():
+    return "✅ Flask app is running!"
