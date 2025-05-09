@@ -1,0 +1,58 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environment
+venv/
+ENV/
+env/
+.venv/
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints/
+
+# VS Code / PyCharm project files
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Model files (large)
+model.h5
+*.h5
+*.pb
+*.tflite
+*.ckpt
+*.weights
+*.onnx
+
+# Training data & outputs
+dataset/
+*.npz
+*.npy
+
+# Git Large File Storage placeholders (if not using LFS)
+*.lfs
+
+# Hidden system files
+ehthumbs.db
+Icon?
+Desktop.ini
+
+# Python cache
+*.cache/
+.cache/
+
+# Compiled shared objects
+*.so
+
+# Test, temp, or debug outputs
+*.bak
+*.tmp
+*.old
