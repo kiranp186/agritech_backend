@@ -6,7 +6,8 @@ image_path = "C:/Users/kpkir/Downloads/sick_leaf.jpg"
 sensor_data = {
     "temperature": 32.5,
     "humidity": 70,
-    "soil_moisture": 300
+    "soil_moisture": 300,
+    "light":200
 }
 
 response = requests.post(
